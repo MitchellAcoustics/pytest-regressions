@@ -1,5 +1,6 @@
 import json
 import os
+from enum import Enum
 from collections.abc import Callable
 from collections.abc import MutableMapping
 from functools import partial
@@ -7,6 +8,11 @@ from pathlib import Path
 from typing import Any
 from typing import Optional
 from typing import TYPE_CHECKING
+
+try:
+    from typing import assert_never
+except ImportError:
+    from typing_extensions import assert_never
 
 import pytest
 import yaml
@@ -18,6 +24,11 @@ from .common import sort_dict_by_keys
 
 if TYPE_CHECKING:
     from pytest_datadir.plugin import LazyDataDir
+
+
+class FileFormat(str, Enum):
+    YAML = ".yml"
+    JSON = ".json"
 
 
 class DataRegressionFixture:
@@ -43,7 +54,7 @@ class DataRegressionFixture:
         basename: str | None = None,
         fullpath: Optional["os.PathLike[str]"] = None,
         round_digits: int | None = None,
-        extension: str = ".yml",
+        format: FileFormat = FileFormat.YAML,
         *,
         indent: int = 2,
     ) -> None:
@@ -63,8 +74,8 @@ class DataRegressionFixture:
         :param round_digits:
             If given, round all floats in the dict to the given number of digits.
 
-        :param extension: Extension of the file. Defaults to ".yml".
-            If equal to ".json", expects `data_dict` to be JSON serializable
+        :param format: Output file format. Defaults to :attr:`FileFormat.YAML`.
+            If equal to :attr:`FileFormat.JSON`, expects `data_dict` to be JSON serializable
             and dumps it using standard `json.dump`.
 
         ``basename`` and ``fullpath`` are exclusive.
@@ -78,28 +89,26 @@ class DataRegressionFixture:
 
         def dump(filename: Path) -> None:
             """Dump dict contents to the given filename"""
-            if extension.lower() in [".yml", ".yaml"]:
-                dumped_str = yaml.dump_all(
-                    [data_dict],
-                    Dumper=RegressionYamlDumper,
-                    default_flow_style=False,
-                    allow_unicode=True,
-                    indent=indent,
-                    encoding="utf-8",
-                )
-                with filename.open("wb") as f:
-                    f.write(dumped_str)
-            elif extension.lower() == ".json":
-                dumped_str = json.dumps(
-                    data_dict, indent=indent, sort_keys=True, ensure_ascii=False
-                )
-                with filename.open("w", encoding="utf-8") as f:
-                    f.write(dumped_str)
-            else:
-                raise NotImplementedError(
-                    f"file extension `{extension}` is not supported by data_regression; "
-                    "supported extensions are '.yml', '.yaml', '.json'"
-                )
+            match format:
+                case FileFormat.YAML:
+                    dumped_str = yaml.dump_all(
+                        [data_dict],
+                        Dumper=RegressionYamlDumper,
+                        default_flow_style=False,
+                        allow_unicode=True,
+                        indent=indent,
+                        encoding="utf-8",
+                    )
+                    with filename.open("wb") as f:
+                        f.write(dumped_str)
+                case FileFormat.JSON:
+                    dumped_str = json.dumps(
+                        data_dict, indent=indent, sort_keys=True, ensure_ascii=False
+                    )
+                    with filename.open("w", encoding="utf-8") as f:
+                        f.write(dumped_str)
+                case _:
+                    assert_never(format)
 
         perform_regression_check(
             datadir=self.datadir,
@@ -107,7 +116,7 @@ class DataRegressionFixture:
             request=self.request,
             check_fn=partial(check_text_files, encoding="UTF-8"),
             dump_fn=dump,
-            extension=extension,
+            extension=format.value,
             basename=basename,
             fullpath=fullpath,
             force_regen=self.force_regen,
@@ -133,7 +142,7 @@ class RegressionYamlDumper(yaml.SafeDumper):
 
     @classmethod
     def add_custom_yaml_representer(
-        cls, data_type: type, representer_fn: Callable[[object, Any], None]
+        cls, data_type: type, representer_fn: Callable[[object, Any], Any]
     ) -> None:
         """
         Add custom representer to regression YAML dumper. It is polymorphic, so it works also for

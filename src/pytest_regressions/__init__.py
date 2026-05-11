@@ -1,5 +1,9 @@
 from typing import Any
 
+from .data_regression import FileFormat
+
+__all__ = ["FileFormat", "add_custom_yaml_representer"]
+
 
 def add_custom_yaml_representer(data_type: type, representer_fn: Any) -> None:
     """
